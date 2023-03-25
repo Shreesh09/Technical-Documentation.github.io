@@ -1,0 +1,244 @@
+<DOCTYPE html>
+    <html lang="en">
+      <head>
+        <title>Load Balancing in GCP</title>
+        <meta charset="utf-8"/>
+        <link href="styles.css" rel="stylesheet" />
+      </head>
+      <body>
+        <main id="main-doc">
+          <div class="ni">
+          <div class="navigation">
+            <nav id="navbar">
+            <header><h3>Load Balancing in GCP</h3></header>
+              <ul class="left">
+              <li><a class="nav-link" href="#Introduction">Introduction</a></li>
+              <li><a class ="nav-link" href="#Network_Load_Balancing-">Network Load Balancing-</a>
+                <ul class="left">
+                  <li>
+                     <a class ="nav-link" href="#Setting_up_Load_Balancers" >Setting up Load Balancers</a>
+                     <ol class="left">
+                       <li>Create Web Servers</li>
+                       <li>Configure the Load Balancing Service</li>
+                     </ol>
+                  </li>
+                </ul>
+              </li>
+              <li><a class="nav-link" href="#HTTP_Load_Balancing">HTTP Load Balancing</a>
+              <ul class="left">
+                <li>
+                     <a class ="nav-link" href="#Setting_up_HTTP_Load_Balancers" >Setting up HTTP Load Balancers</a>
+                     <ol class="left">
+                       <li>Create Load Balancer template</li>
+                       <li>Create a managed instance group based on the template</li>
+                       <li>Allow firewall health check</li>
+                       <li>Create the a global static external IP</li>
+                       <li>Create health check</li>
+                       <li>Create a backend service</li>
+                       <li>Add instance group as backend</li>
+                       <li>Add URL Map</li>
+                       <li>Create a target HTTP proxy</li>
+                       <li>Create global forwarding rule</li>
+                     </ol>
+                  </li>
+                </ul>
+              </li>
+              <li><a class="nav-link" href="#References">References</a></li>
+            </ul>
+            </nav>
+          </div>
+          </div>
+          <div class="content">
+            <section id="Introduction" class="main-section">
+              <header><h2>Introduction</h2></header>
+              <p>
+                Load Balancing in GCP is of two kinds:-
+              </p>
+              <ol>
+                <li>Network Load Balancing</li>
+                <li>HTTP Load Balancing</li>
+              </ol>
+            </section>
+            <section id="Network_Load_Balancing-" class="main-section">
+              <header><h2>Network Load Balancing-</h2></header>
+              <p>Distributing the load among the servers present in the same region.</p>
+      <ul><li>It has no proxy</li></ul>
+            </section>
+            <section id="Setting_up_Load_Balancers" class="main-section">
+              <header><h3>Setting up Load Balancers</h3></header>
+              <ol>
+                <li>
+                  <h4> Creating Web Servers</h4>
+                  <p>This will be the backend where the requests are resolved(we will need a firewall rule to allow http trafiic)</p>
+                  <ul>
+                    <li>
+                      <h5>Create VMs</h5>
+                      <code>
+        gcloud compute instances create www1 \
+          <span>--zone= ZONE\</span>
+          <span>--tags=network-lb-tag \</span>
+          <span>--machine-type=e2-small \</span>
+          <span>--image-family=debian-11 \</span>
+          <span>--image-project=debian-cloud \</span>
+          <span>--metadata=startup-script='#!/bin/bash</span>
+            <span>apt-get update</span>
+            <span>apt-get install apache2 -y</span>
+            <span>service apache2 restart</span>
+            <span>echo "Web Server: www1" | tee /var/www/html/index.html'</span>
+                      </code>
+                    <p> We are giving it a tag flag to adddress all insatances at once during firewall rule creation</p>
+                    </li>
+                    <li>
+                      <h5>Create firewall rule</h5>
+                      <code>
+        gcloud compute firewall-rules create name-rule \
+          <span>--target-tags network-lb-tag --allow tcp:80</span>
+                      </code>
+                    <p> inorder to allow http traffic</p>
+                    <article class="Note">
+                      <em>NOTE:</em>
+                      <p> inorder to check if it is working
+      get the external_ip(<code class="inline">gcloud compute instances list</code>) and verify using <code class="inline">curl http://[IP_ADDRESS]</code>
+                    </article>
+                    </li>
+                  </ul>
+                </li>
+                <li>
+                  <h4>Configure the Load Balancing Service</h4>
+                  <ul>
+                    <li>
+                      <h5>Create a static external IP</h5>
+                      <code>gcloud compute addresses create network-lb-ip-1 \
+          <span>--region</span></code>
+                    </li>
+                    <li>
+                      <h5>Add a legacy HTTP health check</h5>
+                      <code>gcloud compute http-health-checks create basic-check</code>
+                    </li>
+                    <li>
+                      <h5>Add a taget pool</h5>
+                      <code>gcloud compute target-pools create www-pool \
+          <span>--region  --http-health-check basic-check</span></code>
+                    </li>
+                    <li>
+                      <h5>Add instances to the pool</h5>
+                      <code>gcloud compute target-pools add-instances www-pool \
+          <span>--instances www1,www2,www3</span></code>
+                    </li>
+                    <li>
+                      <h5>Add a forwarding Rule</h5>
+                      <code>gcloud compute forwarding-rules create www-rule \
+          <span>--region   \</span>
+          <span>--ports 80 \</span>
+          <span>--address network-lb-ip-1 \</span>
+          <span>--target-pool www-pool</code>
+                    </li>
+                    <li>
+                      <h5>To test the despersal of traffic</h5>
+                      <code>IPADDRESS=$(gcloud compute forwarding-rules describe www-rule --region  --format="json" | jq -r .IPAddress) <span>echo $IPADDRESS</span> <span>while true; do curl -m1 $IPADDRESS; done</span></code>
+                    </li>
+                  </ul>
+                </li>
+              </ol>
+            </section>
+            <section id="HTTP_Load_Balancing" class="main-section">
+              <header><h2>HTTP Load Balancing</h2></header>
+              <img src="https://cloud.google.com/static/load-balancing/images/global-ext-https-lb.svg"/>
+              <p>In this an external ip is provided to  the client which also acts as proxy and in the backend third party services like GKE can work.</p>
+              <p>An HTTP Load Balancer requires the following Achitecture-</p>
+    <p>1) Forwarding Rule- It specifies the external ip, port and HTTP(S) proxy, the clients can use the ip and port to connect to the load balancer</p>
+    <p>2) Target HTTP(s) Proxy- Terminates the http connected and reroutes it to someplace else based upon the url map, like the bakend in HTTPS proxy SSL certificates are reuqired for authentication</p>
+    <p>3) URL maps- they use parts of url to redirect requests to the correct backend In addition to that URL map can suggest actions such as sending redicted to clients</p>
+    <p>4) health check- To make sure backend services, buckets are working</p>
+    <p>5) firewall rules- allow your backend to receive health checks . Regional http protocols require firewall rules to receive traffic</p>
+            </section>
+            <section id="Setting_up_HTTP_Load_Balancers" class="main-section">
+              <header><h3>Setting up HTTP Load Balancers</h3></header>
+              <ol>
+                <li>
+                  <h4> Create Load Balancer template</h4>
+                <code>
+                  gcloud compute instance-templates create lb-backend-template \
+        <span>--region= \</span>
+        <span>--network=default \</span>
+        <span>--subnet=default \</span>
+        <span>--tags=allow-health-check \</span>
+        <span>--machine-type=e2-medium \</span>
+        <span>--image-family=debian-11 \</span>
+        <span>--image-project=debian-cloud \</span>
+        <span>--metadata-from-file startup-script=startup.sh</span>
+                </code>
+                </li>
+                <li>
+                  <h4>Create a managed instance group based on the template</h4>
+                  <code>gcloud compute instance-groups managed create lb-backend-group \
+        <span>--template=lb-backend-template --size=2 --zone= </span></code>
+                </li>
+                <li>
+                  <h4>Allow firewall health check</h4>
+                  <code>gcloud compute firewall-rules create fw-allow-health-check \
+        <span>--network=default \</span>
+        <span>--action=allow \</span>
+        <span>--direction=ingress \</span>
+        <span>--source-ranges=130.211.0.0/22,35.191.0.0/16 \</span>
+        <span>--target-tags=allow-health-check \</span>
+        <span>--rules=tcp:80</span></code>
+                </li>
+                <li>
+                  <h4>Create the a global static external IP</h4>
+                  <code>gcloud compute addresses create lb-ipv4-1 \
+        <span>--ip-version=IPV4 \</span>
+        <span>--globa</span>l</code>
+                  <p> Note the result</p>
+                  <code>gcloud compute addresses describe lb-ipv4-1 \
+        <span>--format="get(address)" \</span>
+        <span>--global</span></code>
+                </li>
+                <li>
+                  <h4>Create health check</h4>
+                  <code>gcloud compute health-checks create http http-basic-check \
+        <span>--port 80</span></code>
+                </li>
+                <li>
+                  <h4>Create a backend service</h4>
+                  <code>gcloud compute backend-services create web-backend-service \
+        <span>--protocol=HTTP \</span>
+        <span>--port-name=http \</span>
+        <span>--health-checks=http-basic-check \</span>
+        <span>--global</span></code>
+                </li>
+                <li>
+                  <h4>Add instance group as backend</h4>
+                  <code>gcloud compute backend-services add-backend web-backend-service \
+        <span>--instance-group=lb-backend-group \</span>
+        <span>--instance-group-zone= \</span>
+        <span>--global</span> </code>
+                </li>
+                <li>
+                  <h4>Add URL Map</h4>
+                  <code>gcloud compute url-maps create web-map-http \
+          <span>--default-service web-backend-service</span></code>
+                </li>
+                <li>
+                  <h4>Create a target HTTP proxy</h4>
+                  <code>gcloud compute target-http-proxies create http-lb-proxy \
+          <span>--url-map web-map-http</span></code>
+                </li>
+                <li>
+                  <h4>Create global forwarding rule</h4>
+                  <code>gcloud compute forwarding-rules create http-content-rule \
+          <span>--address=lb-ipv4-1\</span>
+          <span>--global \</span>
+          <span>--target-http-proxy=http-lb-proxy \</span>
+          <span>--ports=80</span></code>
+                </li>
+              </ol>
+            </section>
+            <section id="References" class="main-section">
+              <header><h2>References</h2></header>
+              <p><a href="https://cloud.google.com/load-balancing/docs/load-balancing-overview" target="_blank">Cloud.google.com- Cloud Load Balancing</a></p>
+            </section>
+          </div>
+        </main>
+      </body>
+    </html>
